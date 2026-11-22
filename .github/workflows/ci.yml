@@ -1,0 +1,88 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: pytest -q
+
+  end-to-end:
+    runs-on: ubuntu-latest
+    services:
+      kafka:
+        image: apache/kafka:3.8.0
+        ports:
+          - 9092:9092
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+
+      - name: wait for kafka
+        run: |
+          for attempt in $(seq 1 30); do
+            if python -c "from kafka import KafkaAdminClient; KafkaAdminClient(bootstrap_servers='localhost:9092').close()" 2>/dev/null; then
+              echo "kafka is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "kafka did not start"; exit 1
+
+      - name: produce events
+        run: python producer.py --rate 2000 | tee producer.txt
+
+      - name: stream path
+        run: python stream_consumer.py --exit-when-idle 20
+
+      - name: batch path
+        run: python batch_job.py | tee batch.txt
+
+      - name: check the first run
+        run: python check_e2e.py
+
+      - name: simulate a crash by replaying the whole topic
+        run: python stream_consumer.py --exit-when-idle 20
+        env:
+          CONSUMER_GROUP: replay-after-crash
+
+      - name: batch path after the replay
+        run: python batch_job.py | tee batch_after_replay.txt
+
+      - name: check that the replay changed nothing in the batch tables
+        run: python check_e2e.py --after-replay
+
+      - name: write the run summary
+        if: always()
+        run: |
+          {
+            echo "## Producer"; echo '```'; cat producer.txt; echo '```'
+            echo "## Batch run"; echo '```'; cat batch.txt; echo '```'
+            echo "## Batch run after replaying every message"; echo '```'; cat batch_after_replay.txt; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pipeline-output
+          path: |
+            data/gold
+            data/silver
+            data/dead_letter
+            data/live_totals.json
+            *.txt
