@@ -1,0 +1,7 @@
+data/
+.venv/
+__pycache__/
+.pytest_cache/
+producer.txt
+batch.txt
+batch_after_replay.txt

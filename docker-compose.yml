@@ -1,0 +1,7 @@
+# single-node kafka (kraft mode, no zookeeper) listening on localhost:9092
+services:
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: poc-kafka
+    ports:
+      - "9092:9092"
