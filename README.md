@@ -108,7 +108,7 @@ python check_e2e.py --after-replay  # after the crash demo
 
 **Commit offsets after the write, not before.** The consumer turns off auto-commit and only commits once a batch is on disk. If it crashes in between, Kafka replays those messages. Nothing is lost, but something may be processed twice. That is at-least-once delivery.
 
-**Make the write safe to repeat.** Because replays will happen, each bronze file is named after its partition and first offset. A replayed batch overwrites its own file. The batch job also deduplicates on `event_id`, which catches the other kind of duplicate: a producer that sent the same event twice.
+**Make the write safe to repeat.** Because replays will happen, each bronze file is named after its partition and first offset, so a replay that splits the messages the same way overwrites its own files. It does not always split them the same way. In the CI run, replaying the whole topic left 3,135 rows in bronze instead of 2,031, because the batches came back with different boundaries. The batch job deduplicates on `event_id`, so silver still held exactly 1,980 rows. File naming alone was not enough. The dedupe is what makes the result safe, and it also catches a producer that sent the same event twice.
 
 **Let the stream be approximate.** The live totals are simple counters. They count duplicates and they double count after a replay. I left that in on purpose. Making a stream exact needs state and transactions, and that cost is only worth paying where the number has to be right in real time.
 
